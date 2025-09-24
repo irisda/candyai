@@ -1,0 +1,195 @@
+# https://taskfile.dev
+
+version: "3"
+
+vars:
+  PREV_VERSION:
+    sh: '[ -f version.txt ] && echo "v$(<version.txt)"'
+  PROJECT_NAME: "{{.TASKFILE_DIR | osBase}}"
+  REPO_ROOT:
+    sh: echo "$(git rev-parse --show-toplevel)"
+  REPO_BASE: "{{.REPO_ROOT | toSlash}}/"
+  PROJECT_PATH: "{{.TASKFILE_DIR | toSlash | trimPrefix .REPO_BASE}}"
+  SONAR_CACHE:
+    sh: echo "$(git rev-parse --show-toplevel)/.sonar-cache"
+
+includes:
+  os:
+    taskfile: Taskfile_{{OS}}.yaml
+    internal: true
+
+tasks:
+  setup:
+    desc: "This step installs all the dependencies of the projects in the repository. It is the first step in the pipeline to ensure that all the subsequent steps have access to the necessary dependencies."
+    run: once
+    cmds:
+      - npm ci
+
+  check-commits:
+    deps:
+      - setup
+    cmds:
+      - npx --yes --package @commitlint/cli commitlint --from {{.PREV_VERSION}} --to HEAD
+
+  check-secrets:
+    cmds:
+      - |
+        docker run --rm -v ${PWD}:/scan-src zricethezav/gitleaks:latest detect \
+        --source="/scan-src" --redact \
+        --baseline-path /scan-src/gitleaks-report.json --log-opts="{{.PREV_VERSION}}...HEAD" --verbose
+
+  check-code-formatting-and-lint:
+    cmds:
+      - task: setup
+      - task: lint-and-format
+
+  lint-and-format:
+    desc: "Run both linting and formatting checks"
+    cmds:
+      - task: lint
+      - task: check-format
+
+  sonarcloud:
+    desc: "Scan Code and confirm Quality Gate via SonarCloud"
+    deps: [npm-ca-login, create-sonar-cache]
+    cmds:
+      - task sonar-scan
+
+  sonar-scan:
+    desc: "Runs a SonarCloud scan"
+    silent: true
+    cmds:
+      - >
+        if [ -z "${BITBUCKET_BUILD_NUMBER}" ]; then
+          echo "This is a local run, skipping task";
+          exit 0;
+        elif [ -z "${BITBUCKET_PR_ID}" ]; then
+          echo "Running TRUNK(Main branch) SONAR SCAN";
+          docker run \
+            -e SONAR_TOKEN=$SONAR_TOKEN \
+            -v {{.REPO_ROOT}}:/opt/src \
+            -v {{.SONAR_CACHE | toSlash }}:/opt/sonar-scanner/.sonar \
+            -w /opt/src \
+            sonarsource/sonar-scanner-cli:latest \
+            -Dsonar.scanner.metadataFilePath=/opt/src/.scannerwork/report-task.txt \
+            -Dsonar.verbose=$SONAR_DEBUG
+        else
+          echo "Running Pull Request SONAR SCAN";
+          docker run \
+            -e SONAR_TOKEN=$SONAR_TOKEN \
+            -v {{.REPO_ROOT}}:/opt/src \
+            -v {{.SONAR_CACHE | toSlash }}:/opt/sonar-scanner/.sonar \
+            -w /opt/src \
+            sonarsource/sonar-scanner-cli:latest \
+            -Dsonar.pullrequest.base=$BITBUCKET_PR_DESTINATION_BRANCH \
+            -Dsonar.pullrequest.branch=$BITBUCKET_BRANCH \
+            -Dsonar.pullrequest.key=$BITBUCKET_PR_ID \
+            -Dsonar.scanner.metadataFilePath=/opt/src/.scannerwork/report-task.txt \
+            -Dsonar.verbose=$SONAR_DEBUG
+          check-quality-gate.sh {{.TASKFILE_DIR}}/.scannerwork/report-task.txt
+        fi
+
+  version:
+    desc: "This task builds, packages and versions the package and releasable codebase as well as main repository"
+    cmds:
+      - task: initialise-versioning
+      - task: complete-versioning
+
+  initialise-versioning:
+    desc: "This task does a git pull in order to version components and the main repository"
+    deps:
+      - setup
+    cmds:
+      - git pull -q --ff-only --no-edit
+
+  complete-versioning:
+    desc: "This task versions the repository and commits all versioning impacts to the repo"
+    deps:
+      - setup
+    cmds:
+      - task: version-main
+      - task: git-push #The following task cmd could fall into each version task, however to save multiple pushes it has been create as a separate task
+
+  version-main:
+    silent: true
+    cmds:
+      - echo "Bumping from $(convco version) to $(convco version --bump)"
+      - git tag v$(convco version --bump)
+      - convco version > version.txt
+      - convco changelog > CHANGELOG.md
+      - git add version.txt CHANGELOG.md
+      - |
+        git commit --no-verify -m "chore(release): release v$(convco version) [skip ci]"
+      - git tag -f -a -m "New Release" v$(convco version)
+    status:
+      - test "$(convco version)" == "$(convco version --bump)"
+
+  lint:
+    desc: "Run ESLint to check Cypress test files"
+    cmds:
+      - npx eslint .
+    silent: false
+
+  check-format:
+    desc: "Run Prettier to format Cypress test files"
+    cmds:
+      - npx prettier --check "src/**/*.{js,ts,jsx,tsx}"
+    silent: false
+
+  playwright-filter-run:
+    desc: "Run filtered Playwright tests in headless mode"
+    deps: [setup, generate-env-file]
+    cmds:
+      - npx playwright test --grep $filters
+
+  playwright-scheduled-run:
+    desc: "Run scheduled filter for Playwright tests in headless mode"
+    deps: [setup, generate-env-file]
+    cmds:
+      - npx playwright test --grep @scheduled
+
+  local:playwright-run:
+    desc: "Run Playwright locally  in headless mode"
+    cmds:
+      - npx playwright test
+
+  generate-env-file:
+    desc: "Generate Playwright env file"
+    cmds:
+      - |
+        echo -n > .env
+
+        # Loop through all environment variables that start with 'env_'
+        env | grep '^env_' | while IFS='=' read -r fullkey value; do
+          # Remove 'env_' prefix to get the flattened key
+          key="${fullkey#env_}"
+
+          # Output key=value format to file
+          echo "${key}=${value}" >> .env
+        done
+    silent: false
+
+  local:flatten-json-to-env:
+    desc: "Flatten credentails.env.json to key=value lines using underscore separators"
+    cmds:
+      - task: os:flatten-json-to-env
+
+  local:lint-and-format-files:
+    desc: "Automatically fix lint and format issues"
+    cmds:
+      - npx eslint src/ --fix
+      - npx prettier --write "src/**/*.{js,ts,jsx,tsx}"
+    silent: false
+
+  git-push:
+    cmds:
+      - git push --no-verify --follow-tags
+
+  npm-ca-login:
+    run: once
+    cmds:
+      - aws codeartifact login --tool npm --domain rapaydo --repository npm
+
+  create-sonar-cache:
+    cmds:
+      - task: os:create-sonar-cache

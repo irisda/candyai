@@ -1,0 +1,43 @@
+{
+  "name": "rapaydoone-ui-tests",
+  "version": "1.0.0",
+  "description": "This README would normally document whatever steps are necessary to get your application up and running.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:candyai": "npx playwright test candyai",
+    "test:candyai-core": "npx playwright test candyai-chat.spec.ts",
+    "test:candyai-conversations": "npx playwright test candyai-conversations.spec.ts",
+    "test:candyai-headed": "npx playwright test candyai --headed",
+    "test:candyai-debug": "npx playwright test candyai --debug",
+    "test:critical": "npx playwright test --grep @critical",
+    "test:ai-chat": "npx playwright test --grep @ai-chat",
+    "test:authentication": "npx playwright test --grep @authentication",
+    "test:performance": "npx playwright test --grep @performance",
+    "test:ui": "npx playwright test --grep @ui",
+    "test:rapaydo": "npx playwright test --grep rapaydo",
+    "report": "npx playwright show-report",
+    "install-browsers": "npx playwright install"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.53.0",
+    "@types/node": "^22.14.1",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "eslint": "^9.25.1",
+    "eslint-config-prettier": "^10.1.2",
+    "eslint-plugin-playwright": "^2.2.0",
+    "globals": "^16.0.0"
+  },
+  "dependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "dotenv": "^16.5.0",
+    "eslint-plugin-prettier": "^5.2.6",
+    "prettier": "^3.5.3",
+    "totp-generator": "^1.0.0"
+  }
+}

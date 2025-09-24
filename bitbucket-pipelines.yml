@@ -1,0 +1,127 @@
+definitions:
+  creds: &aws-creds
+    access-key: $AWS_ACCESS_KEY_ID
+    secret-key: $AWS_SECRET_ACCESS_KEY
+  caches:
+    venvs: /root/.local/share/virtualenvs
+    local-node: node_modules
+    sonar: /opt/sonar-scanner/.sonar/cache
+    scannerwork: .scannerwork
+  cache-config: &cache-config
+    - local-node
+    - docker
+    - node
+    - venvs
+  image-config: &image-config
+    name: 308252154523.dkr.ecr.eu-central-1.amazonaws.com/tool-general-test-environment:latest
+    aws: *aws-creds
+  services:
+    docker:
+      memory: 3072
+
+  steps:
+    - step: &check-commits-and-secrets
+        name: Check Commits & Secrets
+        services:
+          - docker
+        caches: *cache-config
+        image: *image-config
+        script:
+          - task check-commits
+          - task check-secrets
+
+    - step: &check-code-formatting-and-lint
+        name: Check if code formatting is correct and lint
+        services:
+          - docker
+        image: *image-config
+        caches: *cache-config
+        script:
+          - task check-code-formatting-and-lint
+
+    - step: &sonarcloud
+        name: Scan Code and confirm Quality Gate via SonarCloud
+        services:
+          - docker
+        size: 2x
+        caches: *cache-config
+        image: *image-config
+        clone:
+          depth: full
+        script:
+          - task sonarcloud
+
+    - step: &version
+        name: "Version all repository code base"
+        services:
+          - docker
+        caches: *cache-config
+        image: *image-config
+        script:
+          - echo "$BB_SSH_KEY" | base64 -d >~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa
+          - git remote set-url origin "$BITBUCKET_GIT_SSH_ORIGIN"
+          - task version
+
+    - step: &execute-scheduled-tests
+        name: Execute Scheduled tests
+        services:
+          - docker
+        image: mcr.microsoft.com/playwright:v1.53.0-noble
+        caches: *cache-config
+        size: 2x
+        script:
+          - echo "Running all scheduled tagged tests"
+          - npm install -g @go-task/cli
+          - task playwright-scheduled-run
+
+    - step: &execute-filter-tests
+        name: Execute tests based on a filter
+        services:
+          - docker
+        caches: *cache-config
+        image: mcr.microsoft.com/playwright:v1.53.0-noble
+        size: 2x
+        script:
+          - echo "Running all scheduled tagged tests"
+          - npm install -g @go-task/cli
+          - task playwright-filter-run
+
+  stages:
+    - stage: &execute-prd-tests
+        name: "Execute automation tests for Production"
+        deployment: production
+        steps:
+          - step: *execute-filter-tests
+
+    - stage: &execute-uat-tests
+        name: "Execute automation tests for UAT"
+        deployment: uat
+        steps:
+          - step: *execute-filter-tests
+
+pipelines:
+  pull-requests:
+    "**":
+      - parallel:
+          - step: *check-commits-and-secrets
+          - step: *check-code-formatting-and-lint
+      - step: *sonarcloud
+  branches:
+    "{trunk,main,master}":
+      - step: *sonarcloud
+      - step: *version
+  custom:
+    execute-scheduled-tests:
+      - step: *execute-scheduled-tests
+    execute-filtered-tests:
+      - variables:
+          - name: filters
+      - step: *execute-filter-tests
+    execute-uat-automation-tests:
+      - variables:
+          - name: filters
+      - step: *execute-uat-tests
+    execute-prd-automation-tests:
+      - variables:
+          - name: filters
+      - stage: *execute-prd-tests

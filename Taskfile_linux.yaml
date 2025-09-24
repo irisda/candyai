@@ -1,0 +1,25 @@
+version: "3"
+
+#####################################
+# Linux (Taskfile_linux.yaml)
+#####################################
+tasks:
+  create-sonar-cache:
+    cmds:
+      - mkdir -p {{.SONAR_CACHE}} || chmod -R 777 {{.SONAR_CACHE}} || true
+
+  flatten-json-to-env:
+    cmds:
+      - |
+        jq -r '
+          def walk(obj; prefix):
+            if (obj | type) == "object" then
+              to_entries[] | walk(.value; (prefix + "_" + .key))
+            elif (obj | type) == "array" then
+              to_entries[] | walk(.value; (prefix + "_" + (.key | tostring)))
+            else
+              "env_\((prefix | ltrimstr("_")))=\(.)"
+            end;
+          walk(. ; "")
+        ' cypress.env.json > cypress.env
+    silent: true

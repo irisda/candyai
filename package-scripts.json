@@ -1,0 +1,20 @@
+{
+  "name": "ever-ai-testautomation",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:candyai": "npx playwright test candyai",
+    "test:candyai-core": "npx playwright test candyai-chat.spec.ts",
+    "test:candyai-conversations": "npx playwright test candyai-conversations.spec.ts",
+    "test:candyai-headed": "npx playwright test candyai --headed",
+    "test:candyai-debug": "npx playwright test candyai --debug",
+    "test:critical": "npx playwright test --grep @critical",
+    "test:ai-chat": "npx playwright test --grep @ai-chat",
+    "test:authentication": "npx playwright test --grep @authentication",
+    "test:performance": "npx playwright test --grep @performance",
+    "test:ui": "npx playwright test --grep @ui",
+    "test:rapaydo": "npx playwright test --grep rapaydo",
+    "report": "npx playwright show-report",
+    "install-browsers": "npx playwright install"
+  }
+}

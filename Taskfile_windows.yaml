@@ -1,0 +1,16 @@
+version: "3"
+
+#####################################
+# Windows (Taskfile_windows.yaml)
+#####################################
+tasks:
+  create-sonar-cache:
+    cmds:
+      - cmd /c "mkdir {{.TASKFILE_DIR}}\.sonar-cache"
+    status:
+      - test -d {{.TASKFILE_DIR}}\.sonar-cache
+
+  flatten-json-to-env:
+    cmds:
+      - powershell -ExecutionPolicy Bypass -File flatten.ps1
+    silent: true
